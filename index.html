@@ -332,6 +332,20 @@
     <div class="sub">point, scan, pour</div>
   </header>
 
+  <div class="manual-toggle" style="margin-top:14px;">
+    <button class="ghost" id="howToBtn">? How it works</button>
+  </div>
+  <div id="howToPanel" style="display:none;border:1px solid var(--brass);border-radius:6px;padding:16px;margin:12px 0;font-size:14px;line-height:1.6;">
+    <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--amber-bright);margin-bottom:10px;">Quick start</div>
+    <div style="margin-bottom:10px;"><strong>1. Scan.</strong> Tap "Start scanning," point your camera at a bottle's barcode. Known bottles just get a name/quantity to confirm.</div>
+    <div style="margin-bottom:10px;"><strong>2. Going fast?</strong> Turn on Quick Capture. Known bottles tick up silently; unknown ones get snapped so you can keep moving instead of stopping to type.</div>
+    <div style="margin-bottom:10px;"><strong>3. Label later.</strong> Captured photos land in "To label" below — review them whenever, with a name guess pre-filled for you to check.</div>
+    <div style="margin-bottom:10px;"><strong>4. No barcode match?</strong> Type the name once, manually or in the review queue — that barcode is remembered for good after that, for you and everyone else using this tool.</div>
+    <div style="margin-bottom:10px;"><strong>Discoveries &amp; Shelf Snapshot</strong> track variety, not frequency — no daily pressure, just a running tally of what you've tried and fun counts like "That's 5 Amaros!"</div>
+    <div style="margin-bottom:0;"><strong>Cocktail Builder</strong> checks classic recipes against what's actually open on your shelf right now.</div>
+    <div style="font-family:var(--mono);font-size:10.5px;color:var(--parchment-dim);margin-top:12px;">Everything's saved in this browser only — nothing leaves your device except an optional shared barcode dictionary others can add to as well.</div>
+  </div>
+
   <div id="setupBanner" style="display:none;border:1px dashed var(--brass);border-radius:6px;padding:14px;margin:16px 0;font-family:var(--mono);font-size:11.5px;color:var(--parchment-dim);">
     <div style="margin-bottom:10px;">One-time setup: create the shared barcode dictionary so everyone's scans teach each other.</div>
     <button class="primary" id="createDictBtn">Create shared dictionary</button>
@@ -1289,6 +1303,12 @@
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showToast('Exported ' + codes.length + ' items');
+  });
+
+  // ---------- how it works ----------
+  document.getElementById('howToBtn').addEventListener('click', ()=>{
+    const panel = document.getElementById('howToPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
   });
 
   // ---------- init ----------
