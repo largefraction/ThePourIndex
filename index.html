@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>The Pour Index &mdash; Bar Inventory</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+<style>
+  :root{
+    --ink:#17150F;
+    --ink-2:#211D14;
+    --parchment:#EDE6D6;
+    --parchment-dim:#B9AF9B;
+    --amber:#C77D2E;
+    --amber-bright:#E29A48;
+    --glass-green:#3A4A38;
+    --brass:#8C6D46;
+    --danger:#A8402F;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --mono: "SF Mono", "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--ink);
+    color:var(--parchment);
+    font-family:var(--serif);
+    min-height:100vh;
+    padding-bottom:60px;
+  }
+  .wrap{max-width:520px;margin:0 auto;padding:0 16px;}
+
+  header{
+    padding:28px 16px 18px;
+    border-bottom:1px solid rgba(140,109,70,0.35);
+    text-align:center;
+  }
+  header .eyebrow{
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:0.25em;
+    text-transform:uppercase;
+    color:var(--amber-bright);
+    margin-bottom:6px;
+  }
+  header h1{
+    font-size:28px;
+    margin:0;
+    letter-spacing:0.02em;
+    font-weight:400;
+  }
+  header .sub{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--parchment-dim);
+    margin-top:6px;
+  }
+
+  .scan-stage{
+    margin:20px 0;
+    position:relative;
+    border-radius:6px;
+    overflow:hidden;
+    background:#0B0A07;
+    border:1px solid rgba(140,109,70,0.4);
+    aspect-ratio: 4/3;
+  }
+  video{
+    width:100%;height:100%;object-fit:cover;
+    display:block;
+    filter:contrast(1.05) saturate(0.95);
+  }
+  .viewfinder{
+    position:absolute;inset:0;
+    pointer-events:none;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .frame{
+    width:72%;
+    aspect-ratio: 2.2/1;
+    position:relative;
+  }
+  .frame .corner{
+    position:absolute;
+    width:22px;height:22px;
+    border-color:var(--amber-bright);
+    border-style:solid;
+    border-width:0;
+  }
+  .frame .tl{top:0;left:0;border-top-width:2px;border-left-width:2px;}
+  .frame .tr{top:0;right:0;border-top-width:2px;border-right-width:2px;}
+  .frame .bl{bottom:0;left:0;border-bottom-width:2px;border-left-width:2px;}
+  .frame .br{bottom:0;right:0;border-bottom-width:2px;border-right-width:2px;}
+  .sweep{
+    position:absolute;left:2px;right:2px;height:2px;
+    background:linear-gradient(90deg, transparent, var(--amber-bright), transparent);
+    top:0;
+    animation: sweep 2.2s ease-in-out infinite;
+    opacity:0.9;
+  }
+  @keyframes sweep{
+    0%{top:6%;}
+    50%{top:94%;}
+    100%{top:6%;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .sweep{animation:none;top:50%;}
+  }
+  .stage-msg{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    text-align:center;padding:24px;
+    font-family:var(--mono);font-size:12.5px;
+    color:var(--parchment-dim);
+    background:rgba(11,10,7,0.5);
+  }
+  .stage-msg button{margin-top:12px;}
+
+  .status-bar{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--parchment-dim);
+    display:flex;justify-content:space-between;
+    margin-top:8px;
+  }
+  .status-bar .dot{
+    display:inline-block;width:6px;height:6px;border-radius:50%;
+    background:var(--glass-green);margin-right:6px;
+    box-shadow:0 0 6px var(--glass-green);
+  }
+  .status-bar.live .dot{background:var(--amber-bright);box-shadow:0 0 6px var(--amber-bright);}
+
+  button{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    background:transparent;
+    color:var(--parchment);
+    border:1px solid var(--brass);
+    border-radius:4px;
+    padding:10px 14px;
+    cursor:pointer;
+    transition:background 0.15s, border-color 0.15s;
+  }
+  button:hover{border-color:var(--amber-bright);}
+  button:active{background:rgba(199,125,46,0.15);}
+  button.primary{
+    background:var(--amber);
+    border-color:var(--amber);
+    color:#1A1509;
+    font-weight:600;
+  }
+  button.primary:hover{background:var(--amber-bright);}
+  button.ghost{border-color:transparent;color:var(--parchment-dim);}
+  button.danger{border-color:var(--danger);color:var(--danger);}
+  button.danger:hover{background:rgba(168,64,47,0.12);}
+  button:disabled{opacity:0.4;cursor:not-allowed;}
+
+  .row{display:flex;gap:8px;}
+  .row.between{justify-content:space-between;align-items:center;}
+  .row.wrap{flex-wrap:wrap;}
+
+  /* Confirm card after a scan */
+  .confirm-card{
+    margin-top:14px;
+    border:1px solid var(--brass);
+    border-radius:6px;
+    padding:16px;
+    background:var(--ink-2);
+    animation: rise 0.25s ease-out;
+  }
+  @keyframes rise{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+  .confirm-card .barcode-tag{
+    font-family:var(--mono);font-size:11px;color:var(--amber-bright);
+    letter-spacing:0.05em;margin-bottom:10px;
+  }
+  .field label{
+    display:block;font-family:var(--mono);font-size:10px;
+    text-transform:uppercase;letter-spacing:0.1em;color:var(--parchment-dim);
+    margin-bottom:4px;
+  }
+  .field input{
+    width:100%;
+    background:var(--ink);
+    border:1px solid rgba(140,109,70,0.5);
+    border-radius:4px;
+    color:var(--parchment);
+    font-family:var(--serif);
+    font-size:16px;
+    padding:9px 10px;
+    margin-bottom:12px;
+  }
+  .field input:focus{outline:2px solid var(--amber-bright);outline-offset:1px;}
+  .field select{
+    width:100%;
+    background:var(--ink);
+    border:1px solid rgba(140,109,70,0.5);
+    border-radius:4px;
+    color:var(--parchment);
+    font-family:var(--mono);
+    font-size:14px;
+    padding:9px 10px;
+    margin-bottom:12px;
+  }
+  .field select:focus{outline:2px solid var(--amber-bright);outline-offset:1px;}
+  .qty-stepper{
+    display:flex;align-items:center;gap:10px;margin-bottom:14px;
+  }
+  .qty-stepper button{width:36px;height:36px;padding:0;font-size:16px;}
+  .qty-stepper .n{font-family:var(--mono);font-size:18px;min-width:28px;text-align:center;}
+
+  /* Manual entry toggle */
+  .manual-toggle{
+    margin-top:14px;text-align:center;
+  }
+  .manual-form{
+    margin-top:10px;
+    border-top:1px dashed rgba(140,109,70,0.4);
+    padding-top:14px;
+  }
+
+  /* Inventory / shelf */
+  .shelf{margin-top:32px;}
+  .shelf h2{
+    font-size:14px;text-transform:uppercase;letter-spacing:0.15em;
+    font-family:var(--mono);color:var(--amber-bright);
+    border-bottom:1px solid rgba(140,109,70,0.35);
+    padding-bottom:8px;margin-bottom:4px;
+    display:flex;justify-content:space-between;align-items:baseline;
+  }
+  .shelf h2 .count{color:var(--parchment-dim);font-size:11px;}
+  .bottle-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 0;
+    border-bottom:1px solid rgba(140,109,70,0.18);
+    gap:10px;
+  }
+  .bottle-info{min-width:0;}
+  .bottle-info .name{font-size:16.5px;line-height:1.25;}
+  .bottle-info .brand{
+    font-family:var(--mono);font-size:10.5px;color:var(--parchment-dim);
+    text-transform:uppercase;letter-spacing:0.05em;margin-top:2px;
+  }
+  .bottle-info .code{
+    font-family:var(--mono);font-size:9.5px;color:rgba(185,175,155,0.5);
+    margin-top:3px;
+  }
+  .bottle-controls{
+    display:flex;align-items:center;gap:6px;flex-shrink:0;
+  }
+  .bottle-controls button{width:30px;height:30px;padding:0;font-size:14px;}
+  .bottle-controls .n{
+    font-family:var(--mono);font-size:15px;min-width:22px;text-align:center;
+  }
+  .empty-shelf{
+    text-align:center;padding:40px 16px;
+    font-family:var(--mono);font-size:12px;color:var(--parchment-dim);
+  }
+
+  .toast{
+    position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+    background:var(--ink-2);border:1px solid var(--amber);
+    color:var(--parchment);font-family:var(--mono);font-size:12px;
+    padding:10px 16px;border-radius:6px;
+    opacity:0;pointer-events:none;transition:opacity 0.25s;
+    z-index:50;
+  }
+  .toast.show{opacity:1;}
+
+  .review-overlay{
+    position:fixed;inset:0;background:rgba(11,10,7,0.92);
+    z-index:60;display:flex;align-items:center;justify-content:center;
+    padding:20px;
+  }
+  .review-panel{
+    background:var(--ink-2);border:1px solid var(--brass);border-radius:8px;
+    padding:18px;max-width:460px;width:100%;max-height:90vh;overflow-y:auto;
+  }
+  .review-panel img{
+    width:100%;border-radius:6px;margin-bottom:12px;background:#000;
+  }
+  .review-panel .prog{
+    font-family:var(--mono);font-size:10.5px;color:var(--parchment-dim);
+    margin-bottom:10px;text-transform:uppercase;letter-spacing:0.08em;
+  }
+  .ocr-note{
+    font-family:var(--mono);font-size:10.5px;color:var(--amber-bright);margin-bottom:10px;
+  }
+  .streak-box{
+    display:flex;align-items:baseline;gap:12px;padding:6px 0;
+  }
+  .streak-num{
+    font-family:var(--serif);font-size:40px;color:var(--amber-bright);line-height:1;
+  }
+  .streak-label{
+    font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.08em;
+    color:var(--parchment-dim);
+  }
+  .streak-sub{
+    font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-top:8px;
+  }
+  .cocktail-card{
+    padding:14px 0;border-bottom:1px solid rgba(140,109,70,0.18);
+  }
+  .cocktail-card .ck-name{font-size:17px;display:flex;align-items:center;gap:8px;}
+  .cocktail-card .ck-ingredients{
+    font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-top:4px;
+  }
+  .ck-badge{
+    font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;
+    padding:2px 7px;border-radius:3px;
+  }
+  .ck-badge.ready{background:rgba(199,125,46,0.25);color:var(--amber-bright);}
+  .ck-badge.missing{background:rgba(140,109,70,0.15);color:var(--parchment-dim);}
+  .snap-line{
+    display:flex;justify-content:space-between;padding:7px 0;
+    border-bottom:1px solid rgba(140,109,70,0.15);font-size:14.5px;
+  }
+  .snap-line .snap-count{
+    font-family:var(--mono);color:var(--amber-bright);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Back Bar &middot; Stock Ledger</div>
+    <h1>The Pour Index</h1>
+    <div class="sub">point, scan, pour</div>
+  </header>
+
+  <div id="setupBanner" style="display:none;border:1px dashed var(--brass);border-radius:6px;padding:14px;margin:16px 0;font-family:var(--mono);font-size:11.5px;color:var(--parchment-dim);">
+    <div style="margin-bottom:10px;">One-time setup: create the shared barcode dictionary so everyone's scans teach each other.</div>
+    <button class="primary" id="createDictBtn">Create shared dictionary</button>
+    <div id="createDictResult" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="scan-stage" id="scanStage">
+    <video id="video" playsinline muted></video>
+    <div class="viewfinder">
+      <div class="frame">
+        <div class="corner tl"></div><div class="corner tr"></div>
+        <div class="corner bl"></div><div class="corner br"></div>
+        <div class="sweep" id="sweep"></div>
+      </div>
+    </div>
+    <div class="stage-msg" id="stageMsg">
+      <div>
+        <div id="stageMsgText">Camera scanning starts once you grant access.</div>
+        <button class="primary" id="startBtn">Start scanning</button>
+      </div>
+    </div>
+  </div>
+  <div class="status-bar" id="statusBar">
+    <span><span class="dot"></span><span id="statusText">Idle</span></span>
+    <span id="formatSupport"></span>
+  </div>
+  <div class="row between" style="margin-top:10px;">
+    <div style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);">
+      Quick Capture: snap unknown bottles instead of stopping to type
+    </div>
+    <button class="ghost" id="quickCaptureBtn">Off</button>
+  </div>
+
+  <div id="confirmSlot"></div>
+
+  <div class="manual-toggle">
+    <button class="ghost" id="settingsToggleBtn">⚙ Recognition settings</button>
+  </div>
+  <div class="manual-form" id="settingsForm" style="display:none;">
+    <div style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:12px;">
+      Optional: add your own Anthropic API key for much better label reading than on-device text recognition. Stored only in this browser — never sent anywhere but Anthropic, never saved to the shared dictionary. Usage is billed to your own account.
+    </div>
+    <div class="field">
+      <label for="apiKeyInput">Anthropic API key</label>
+      <input id="apiKeyInput" type="password" placeholder="sk-ant-...">
+    </div>
+    <div class="row">
+      <button class="primary" id="apiKeySaveBtn">Save key</button>
+      <button class="danger" id="apiKeyClearBtn">Clear key</button>
+    </div>
+    <div style="font-family:var(--mono);font-size:10.5px;color:var(--parchment-dim);margin-top:10px;" id="apiKeyStatus"></div>
+  </div>
+
+  <div class="manual-toggle">
+    <button class="ghost" id="manualToggleBtn">+ Add a bottle manually</button>
+  </div>
+  <div class="manual-form" id="manualForm" style="display:none;">
+    <div class="field">
+      <label for="mBarcode">Barcode</label>
+      <input id="mBarcode" inputmode="numeric" placeholder="e.g. 087000123456">
+    </div>
+    <div class="field">
+      <label for="mName">Bottle name</label>
+      <input id="mName" placeholder="e.g. Buffalo Trace Bourbon">
+    </div>
+    <div class="field">
+      <label for="mBrand">Brand / distillery (optional)</label>
+      <input id="mBrand" placeholder="e.g. Sazerac">
+    </div>
+    <div class="field">
+      <label for="mCategory">Category</label>
+      <select id="mCategory"></select>
+    </div>
+    <div class="row">
+      <button class="primary" id="manualAddBtn">Add to shelf</button>
+      <button class="ghost" id="manualCancelBtn">Cancel</button>
+    </div>
+  </div>
+
+  <div class="shelf" id="streakSection">
+    <h2>Discoveries</h2>
+    <div id="streakDisplay"></div>
+  </div>
+
+  <div class="shelf" id="snapshotSection">
+    <h2>Shelf Snapshot</h2>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:10px;">
+      Best-effort, matched from bottle names against common distillery names — not exhaustive.
+    </div>
+    <div id="snapshotDisplay"></div>
+  </div>
+
+  <div class="shelf" id="reviewSection" style="display:none;">
+    <h2>To label <span class="count" id="reviewCount">0 captured</span></h2>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:10px;">
+      Bottles you captured but haven't named yet.
+    </div>
+    <button class="primary" id="reviewNowBtn">Review now</button>
+  </div>
+  <div id="reviewModal"></div>
+
+  <div class="shelf">
+    <h2>On the shelf <span class="count" id="shelfCount">0 items</span></h2>
+    <div class="row" style="margin:10px 0 4px;">
+      <button class="ghost" id="exportBtn">⭳ Export CSV</button>
+    </div>
+    <div id="shelfList"></div>
+  </div>
+
+  <div class="shelf">
+    <h2>Cocktail Builder <span class="count" id="ckCount"></span></h2>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:10px;">
+      Classic recipes matched against what's on your shelf. Fresh basics like citrus, sugar, and mixers are assumed on hand.
+    </div>
+    <div id="cocktailList"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  // ---- SHARED BARCODE DICTIONARY SETUP ----
+  // This lets anyone using the app teach it a bottle's name once, and everyone
+  // else's copy of the app recognizes that barcode from then on.
+  // One-time setup: click "Create shared dictionary" below (shown until this is set),
+  // then replace the line below with the URL it gives you, and redeploy.
+  const SHARED_DICT_URL = ''; // e.g. 'https://jsonblob.com/api/jsonBlob/1234567890123456789'
+
+  const STORAGE_KEY = 'inventory';
+  const QUEUE_KEY = 'reviewQueue';
+  const CATEGORIES = ['Whiskey','Gin','Rum','Tequila/Mezcal','Vodka','Brandy','Vermouth','Liqueur/Amaro','Bitters','Wine/Champagne','Mixer','Other'];
+  function categoryOptionsHtml(selected){
+    return CATEGORIES.map(c => `<option value="${c}"${c===selected ? ' selected' : ''}>${c}</option>`).join('');
+  }
+  function guessCategory(name){
+    const n = (name || '').toLowerCase();
+    if(/whisk(e)?y|bourbon|scotch|rye|single malt/.test(n)) return 'Whiskey';
+    if(/\bgin\b/.test(n)) return 'Gin';
+    if(/\brum\b/.test(n)) return 'Rum';
+    if(/tequila|mezcal/.test(n)) return 'Tequila/Mezcal';
+    if(/vodka/.test(n)) return 'Vodka';
+    if(/brandy|cognac|armagnac/.test(n)) return 'Brandy';
+    if(/vermouth/.test(n)) return 'Vermouth';
+    if(/bitters/.test(n)) return 'Bitters';
+    if(/champagne|prosecco|sparkling wine|\bwine\b/.test(n)) return 'Wine/Champagne';
+    if(/liqueur|amaro|aperol|campari|triple sec|cointreau|schnapps|curacao|nonino/.test(n)) return 'Liqueur/Amaro';
+    if(/tonic|soda|ginger beer|cola|juice|syrup/.test(n)) return 'Mixer';
+    return 'Other';
+  }
+  let inventory = {}; // barcode -> {name, brand, qty, category}
+  let sharedDict = {}; // barcode -> {name, brand} — crowdsourced, shared by everyone
+  let reviewQueue = []; // [{id, barcode, image, timestamp}] — captured but not yet named
+  let quickCapture = false;
+  let apiKey = '';
+  let stream = null;
+  let detector = null;
+  let scanning = false;
+  let rafId = null;
+  let paused = false; // paused while confirm card is open
+
+  const video = document.getElementById('video');
+  const stageMsg = document.getElementById('stageMsg');
+  const stageMsgText = document.getElementById('stageMsgText');
+  const startBtn = document.getElementById('startBtn');
+  const statusBar = document.getElementById('statusBar');
+  const statusText = document.getElementById('statusText');
+  const formatSupport = document.getElementById('formatSupport');
+  const confirmSlot = document.getElementById('confirmSlot');
+  const shelfList = document.getElementById('shelfList');
+  const shelfCount = document.getElementById('shelfCount');
+  const toast = document.getElementById('toast');
+  const quickCaptureBtn = document.getElementById('quickCaptureBtn');
+  const reviewSection = document.getElementById('reviewSection');
+  const reviewCount = document.getElementById('reviewCount');
+  const reviewModal = document.getElementById('reviewModal');
+  const reviewNowBtn = document.getElementById('reviewNowBtn');
+
+  function showToast(msg){
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(()=> toast.classList.remove('show'), 1800);
+  }
+
+  // ---------- shared barcode dictionary (crowdsourced across everyone) ----------
+  async function loadSharedDict(){
+    if(!SHARED_DICT_URL) return;
+    try{
+      const res = await fetch(SHARED_DICT_URL);
+      if(res.ok){
+        sharedDict = await res.json();
+      }
+    }catch(e){
+      // no network / service hiccup — app still works from local data + live APIs
+    }
+  }
+  async function pushToSharedDict(code, name, brand, category){
+    if(!SHARED_DICT_URL) return;
+    try{
+      // Re-fetch first so a near-simultaneous edit from someone else isn't clobbered.
+      const res = await fetch(SHARED_DICT_URL);
+      const latest = res.ok ? await res.json() : sharedDict;
+      latest[code] = { name, brand: brand || '', category: category || 'Other' };
+      sharedDict = latest;
+      await fetch(SHARED_DICT_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(latest)
+      });
+    }catch(e){
+      // best-effort — the bottle is still saved to this device's own shelf either way
+    }
+  }
+  async function setupSharedDictionary(){
+    const btn = document.getElementById('createDictBtn');
+    const result = document.getElementById('createDictResult');
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+    try{
+      const res = await fetch('https://jsonblob.com/api/jsonBlob', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      const location = res.headers.get('Location');
+      if(location){
+        result.innerHTML = `
+          <div style="color:var(--amber-bright);margin-bottom:6px;">Created! Copy this URL:</div>
+          <div style="background:var(--ink);padding:8px;border-radius:4px;word-break:break-all;user-select:all;">${location}</div>
+          <div style="margin-top:8px;">Paste it as the value of SHARED_DICT_URL near the top of the &lt;script&gt; in index.html, then re-upload that file. This banner disappears once it's set.</div>
+        `;
+      }else{
+        result.textContent = 'Something went wrong — no URL came back. Try again in a moment.';
+        btn.disabled = false;
+        btn.textContent = 'Create shared dictionary';
+      }
+    }catch(e){
+      result.textContent = 'Could not reach the storage service — check your connection and try again.';
+      btn.disabled = false;
+      btn.textContent = 'Create shared dictionary';
+    }
+  }
+  if(!SHARED_DICT_URL){
+    document.getElementById('setupBanner').style.display = 'block';
+    document.getElementById('createDictBtn').addEventListener('click', setupSharedDictionary);
+  }
+
+  // ---------- optional Claude vision recognition (bring-your-own API key) ----------
+  const settingsToggleBtn = document.getElementById('settingsToggleBtn');
+  const settingsForm = document.getElementById('settingsForm');
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  const apiKeyStatus = document.getElementById('apiKeyStatus');
+
+  function loadApiKey(){
+    try{
+      apiKey = localStorage.getItem('anthropicApiKey') || '';
+    }catch(e){ apiKey = ''; }
+    apiKeyStatus.textContent = apiKey ? 'Key saved — vision recognition is active.' : 'No key set — using on-device text recognition only.';
+  }
+  settingsToggleBtn.addEventListener('click', ()=>{
+    settingsForm.style.display = settingsForm.style.display==='none' ? 'block' : 'none';
+  });
+  document.getElementById('apiKeySaveBtn').addEventListener('click', ()=>{
+    const val = apiKeyInput.value.trim();
+    if(!val){ showToast('Paste a key first'); return; }
+    apiKey = val;
+    localStorage.setItem('anthropicApiKey', val);
+    apiKeyInput.value = '';
+    loadApiKey();
+    showToast('Key saved to this browser');
+  });
+  document.getElementById('apiKeyClearBtn').addEventListener('click', ()=>{
+    apiKey = '';
+    localStorage.removeItem('anthropicApiKey');
+    loadApiKey();
+    showToast('Key cleared');
+  });
+
+  async function recognizeWithClaude(imageDataUrl){
+    const base64 = imageDataUrl.split(',')[1];
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 300,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+            { type: 'text', text: 'This is a photo of a liquor bottle label. Reply with ONLY JSON, no other text: {"name": "...", "brand": "..."}. Use the fullest accurate product name you can read (e.g. "Buffalo Trace Kentucky Straight Bourbon"). If a field truly cannot be read, use an empty string for it.' }
+          ]
+        }]
+      })
+    });
+    if(!res.ok) throw new Error('API error ' + res.status);
+    const data = await res.json();
+    const text = (data.content || []).map(b => b.text || '').join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    return { name: parsed.name || '', brand: parsed.brand || '' };
+  }
+
+  // ---------- cocktail builder ----------
+  const COCKTAILS = [
+    { name: 'Old Fashioned', requires: ['Whiskey', 'Bitters'], pantry: 'sugar cube' },
+    { name: 'Whiskey Sour', requires: ['Whiskey'], pantry: 'lemon, sugar' },
+    { name: 'Manhattan', requires: ['Whiskey', 'Vermouth', 'Bitters'], pantry: '' },
+    { name: 'Boulevardier', requires: ['Whiskey', 'Liqueur/Amaro', 'Vermouth'], pantry: '' },
+    { name: 'Martini', requires: ['Gin', 'Vermouth'], pantry: '' },
+    { name: 'Negroni', requires: ['Gin', 'Liqueur/Amaro', 'Vermouth'], pantry: '' },
+    { name: 'Gimlet', requires: ['Gin'], pantry: 'lime' },
+    { name: 'Daiquiri', requires: ['Rum'], pantry: 'lime, sugar' },
+    { name: 'Mojito', requires: ['Rum'], pantry: 'lime, mint, sugar, soda' },
+    { name: 'Margarita', requires: ['Tequila/Mezcal', 'Liqueur/Amaro'], pantry: 'lime' },
+    { name: 'Moscow Mule', requires: ['Vodka'], pantry: 'ginger beer, lime' },
+    { name: 'Cosmopolitan', requires: ['Vodka', 'Liqueur/Amaro'], pantry: 'lime, cranberry juice' },
+    { name: 'Sidecar', requires: ['Brandy', 'Liqueur/Amaro'], pantry: 'lemon' },
+    { name: 'Champagne Cocktail', requires: ['Wine/Champagne', 'Bitters'], pantry: 'sugar cube' },
+    { name: 'Paper Plane', requires: ['Whiskey', 'Liqueur/Amaro'], pantry: 'lemon — needs two different amari/liqueurs' }
+  ];
+
+  function hasCategory(cat){
+    return Object.values(inventory).some(it => it.category === cat && it.qty > 0);
+  }
+  function renderCocktails(){
+    const ckCount = document.getElementById('ckCount');
+    const readyCount = COCKTAILS.filter(c => c.requires.every(hasCategory)).length;
+    ckCount.textContent = readyCount + ' of ' + COCKTAILS.length + ' ready';
+    document.getElementById('cocktailList').innerHTML = COCKTAILS.map(c => {
+      const missing = c.requires.filter(r => !hasCategory(r));
+      const ready = missing.length === 0;
+      const badge = ready
+        ? '<span class="ck-badge ready">Ready</span>'
+        : '<span class="ck-badge missing">Need ' + missing.join(', ') + '</span>';
+      const pantryNote = c.pantry ? ' + ' + c.pantry : '';
+      return `
+        <div class="cocktail-card">
+          <div class="ck-name">${escapeHtml(c.name)} ${badge}</div>
+          <div class="ck-ingredients">${c.requires.join(' + ')}${pantryNote}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ---------- shelf snapshot (fun subtype/region counts, derived from names already on the shelf) ----------
+  const SUBTYPE_RULES = [
+    // Scotch regions — matched by well-known distillery names; approximate by nature.
+    { test: /macallan|glenlivet|glenfiddich|balvenie|aberlour|glenfarclas|cragganmore|glen grant|longmorn|mortlach|cardhu|glen moray/i, singular: 'Speyside Scotch', plural: 'Speyside Scotches' },
+    { test: /laphroaig|lagavulin|ardbeg|bowmore|bruichladdich|bunnahabhain|kilchoman|caol ila|port ellen/i, singular: 'Islay Scotch', plural: 'Islay Scotches' },
+    { test: /glenmorangie|dalmore|oban|dalwhinnie|highland park|glengoyne|aberfeldy|royal lochnagar|old pulteney/i, singular: 'Highland Scotch', plural: 'Highland Scotches' },
+    { test: /auchentoshan|glenkinchie/i, singular: 'Lowland Scotch', plural: 'Lowland Scotches' },
+    { test: /springbank|glen scotia|hazelburn|kilkerran/i, singular: 'Campbeltown Scotch', plural: 'Campbeltown Scotches' },
+    { test: /talisker|isle of jura|\bjura\b|tobermory|scapa|arran/i, singular: 'Island Scotch', plural: 'Island Scotches' },
+    { test: /\bscotch\b/i, singular: 'Scotch (region unclear)', plural: 'Scotches (region unclear)' },
+    // Other whiskey styles
+    { test: /\bbourbon\b/i, singular: 'Bourbon', plural: 'Bourbons' },
+    { test: /\brye\b/i, singular: 'Rye Whiskey', plural: 'Rye Whiskeys' },
+    { test: /\birish\b/i, singular: 'Irish Whiskey', plural: 'Irish Whiskeys' },
+    { test: /japanese|suntory|nikka|yamazaki|hibiki|hakushu/i, singular: 'Japanese Whisky', plural: 'Japanese Whiskies' },
+    // Agave
+    { test: /\bmezcal\b/i, singular: 'Mezcal', plural: 'Mezcals' },
+    { test: /\btequila\b/i, singular: 'Tequila', plural: 'Tequilas' },
+    // Amari and other categories
+    { test: /\bamaro\b|\bamari\b/i, singular: 'Amaro', plural: 'Amaros' },
+    { test: /\bcognac\b/i, singular: 'Cognac', plural: 'Cognacs' },
+    { test: /\bvermouth\b/i, singular: 'Vermouth', plural: 'Vermouths' },
+    { test: /\bgin\b/i, singular: 'Gin', plural: 'Gins' },
+    { test: /\brum\b/i, singular: 'Rum', plural: 'Rums' },
+    { test: /\bvodka\b/i, singular: 'Vodka', plural: 'Vodkas' }
+  ];
+
+  function computeSnapshot(){
+    const counts = {}; // label -> {count, plural}
+    Object.values(inventory).forEach(item => {
+      if(!item.qty || item.qty <= 0) return;
+      const text = (item.name || '') + ' ' + (item.brand || '');
+      const rule = SUBTYPE_RULES.find(r => r.test.test(text));
+      if(rule){
+        if(!counts[rule.singular]) counts[rule.singular] = { count: 0, singular: rule.singular, plural: rule.plural };
+        counts[rule.singular].count += 1;
+      }
+    });
+    return Object.values(counts).sort((a, b) => b.count - a.count);
+  }
+  function renderSnapshot(){
+    const snapshotDisplay = document.getElementById('snapshotDisplay');
+    const stats = computeSnapshot();
+    if(stats.length === 0){
+      snapshotDisplay.innerHTML = '<div class="empty-shelf">Add a few bottles and this fills in on its own.</div>';
+      return;
+    }
+    snapshotDisplay.innerHTML = stats.map(s => `
+      <div class="snap-line">
+        <span>That's ${s.count} ${s.count === 1 ? s.singular : s.plural}!</span>
+        <span class="snap-count">${s.count}</span>
+      </div>
+    `).join('');
+  }
+
+  // ---------- discoveries (celebrates variety, never pressures daily drinking) ----------
+  const streakDisplay = document.getElementById('streakDisplay');
+  let discoveryData = { total: 0, categoriesSeen: [] };
+  const MILESTONES = [
+    { at: 1, label: 'First discovery' },
+    { at: 5, label: 'Getting curious' },
+    { at: 15, label: 'Explorer' },
+    { at: 30, label: 'Connoisseur' },
+    { at: 50, label: 'Seasoned taster' }
+  ];
+
+  function loadStreak(){
+    try{
+      const raw = localStorage.getItem('discoveryData');
+      if(raw) discoveryData = JSON.parse(raw);
+    }catch(e){
+      discoveryData = { total: 0, categoriesSeen: [] };
+    }
+    renderStreak();
+  }
+  function saveStreak(){
+    try{ localStorage.setItem('discoveryData', JSON.stringify(discoveryData)); }catch(e){}
+  }
+  function registerDiscovery(category){
+    discoveryData.total += 1;
+    if(category && !discoveryData.categoriesSeen.includes(category)){
+      discoveryData.categoriesSeen.push(category);
+    }
+    saveStreak();
+    renderStreak();
+    showToast('New discovery — ' + discoveryData.total + ' so far');
+  }
+  function renderStreak(){
+    const milestone = [...MILESTONES].reverse().find(m => discoveryData.total >= m.at);
+    const milestoneText = milestone ? milestone.label : 'Just starting out';
+    const catCount = discoveryData.categoriesSeen.length;
+    streakDisplay.innerHTML = `
+      <div class="streak-box">
+        <div class="streak-num">${discoveryData.total}</div>
+        <div class="streak-label">new bottle${discoveryData.total===1?'':'s'} tried — no rush, no deadline</div>
+      </div>
+      <div class="streak-sub">${milestoneText} &middot; explored ${catCount} of ${CATEGORIES.length - 1} categories</div>
+    `;
+  }
+
+  // ---------- review queue (photos captured for unknown bottles) ----------
+  function loadQueue(){
+    try{
+      const raw = localStorage.getItem(QUEUE_KEY);
+      if(raw) reviewQueue = JSON.parse(raw);
+    }catch(e){
+      reviewQueue = [];
+    }
+    renderQueueBadge();
+  }
+  function saveQueue(){
+    try{
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(reviewQueue));
+    }catch(e){
+      showToast('Storage is full — review and clear some captures');
+    }
+  }
+  function renderQueueBadge(){
+    if(reviewQueue.length > 0){
+      reviewSection.style.display = 'block';
+      reviewCount.textContent = reviewQueue.length + (reviewQueue.length===1 ? ' captured' : ' captured');
+    }else{
+      reviewSection.style.display = 'none';
+    }
+  }
+
+  function captureFrameCompressed(){
+    const canvas = document.createElement('canvas');
+    const maxW = 500;
+    const scale = Math.min(1, maxW / video.videoWidth);
+    canvas.width = video.videoWidth * scale;
+    canvas.height = video.videoHeight * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.6);
+  }
+
+  quickCaptureBtn.addEventListener('click', ()=>{
+    quickCapture = !quickCapture;
+    quickCaptureBtn.textContent = quickCapture ? 'On' : 'Off';
+    quickCaptureBtn.style.borderColor = quickCapture ? 'var(--amber-bright)' : '';
+    showToast(quickCapture ? 'Quick Capture on — unknown bottles get snapped, not stopped for' : 'Quick Capture off');
+  });
+
+  reviewNowBtn.addEventListener('click', ()=> openReviewPanel());
+
+  async function openReviewPanel(){
+    if(reviewQueue.length === 0) return;
+    const item = reviewQueue[0];
+    reviewModal.innerHTML = `
+      <div class="review-overlay">
+        <div class="review-panel">
+          <div class="prog">Labeling ${reviewQueue.length} left</div>
+          <img src="${item.image}" alt="Captured bottle">
+          <div class="barcode-tag">SCANNED &middot; ${escapeHtml(item.barcode)}</div>
+          <div class="ocr-note" id="ocrNote">Reading label…</div>
+          <div class="field">
+            <label for="rName">Bottle name</label>
+            <input id="rName" placeholder="Edit or type the name">
+          </div>
+          <div class="field">
+            <label for="rBrand">Brand / distillery</label>
+            <input id="rBrand" placeholder="Optional">
+          </div>
+          <div class="field">
+            <label for="rCategory">Category</label>
+            <select id="rCategory">${categoryOptionsHtml('Other')}</select>
+          </div>
+          <div class="row wrap">
+            <button class="primary" id="rSave">Save to shelf</button>
+            <button class="ghost" id="rSkip">Skip for now</button>
+            <button class="danger" id="rDiscard">Discard</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('rSkip').onclick = ()=>{
+      reviewQueue.push(reviewQueue.shift()); // move to back of the line
+      saveQueue(); renderQueueBadge();
+      reviewModal.innerHTML = '';
+      openReviewPanel();
+    };
+    document.getElementById('rDiscard').onclick = ()=>{
+      reviewQueue.shift();
+      saveQueue(); renderQueueBadge();
+      reviewModal.innerHTML = '';
+      if(reviewQueue.length > 0) openReviewPanel();
+    };
+    document.getElementById('rSave').onclick = ()=>{
+      const name = document.getElementById('rName').value.trim();
+      const brand = document.getElementById('rBrand').value.trim();
+      const category = document.getElementById('rCategory').value;
+      if(!name){
+        showToast('Type a name before saving');
+        return;
+      }
+      const isNew = !inventory[item.barcode];
+      if(inventory[item.barcode]){
+        inventory[item.barcode].qty += 1;
+        inventory[item.barcode].name = name;
+        if(brand) inventory[item.barcode].brand = brand;
+        inventory[item.barcode].category = category;
+      }else{
+        inventory[item.barcode] = { name, brand, qty: 1, category };
+      }
+      saveInventory();
+      renderShelf();
+      pushToSharedDict(item.barcode, name, brand, category);
+      reviewQueue.shift();
+      saveQueue(); renderQueueBadge();
+      showToast('Saved ' + name);
+      reviewModal.innerHTML = '';
+      if(isNew) registerDiscovery(category);
+      if(reviewQueue.length > 0) openReviewPanel();
+    };
+    // Best-effort label read — never blocks the fields above from being usable.
+    const noteEl = document.getElementById('ocrNote');
+    const nameEl = document.getElementById('rName');
+    const brandEl = document.getElementById('rBrand');
+    const categoryEl = document.getElementById('rCategory');
+    if(apiKey){
+      if(noteEl) noteEl.textContent = 'Asking Claude to read the label…';
+      try{
+        const guess = await recognizeWithClaude(item.image);
+        if(noteEl) noteEl.textContent = (guess.name || guess.brand) ? 'Read by Claude — check and edit it' : 'Claude could not read the label — type it manually';
+        if(nameEl && guess.name) nameEl.value = guess.name;
+        if(brandEl && guess.brand) brandEl.value = guess.brand;
+        if(categoryEl && guess.name) categoryEl.value = guessCategory(guess.name);
+      }catch(e){
+        if(noteEl) noteEl.textContent = 'Vision request failed — falling back to on-device text recognition…';
+        await runTesseractGuess(item.image, nameEl, noteEl, categoryEl);
+      }
+    }else if(window.Tesseract){
+      if(noteEl) noteEl.textContent = 'Reading label…';
+      await runTesseractGuess(item.image, nameEl, noteEl, categoryEl);
+    }else{
+      if(noteEl) noteEl.textContent = 'Text recognition unavailable — type it manually';
+    }
+  }
+
+  async function runTesseractGuess(image, nameEl, noteEl, categoryEl){
+    try{
+      const result = await Tesseract.recognize(image, 'eng');
+      const lines = result.data.text.split('\n').map(l=>l.trim()).filter(l=>l.length > 2);
+      const guess = lines[0] || '';
+      if(noteEl) noteEl.textContent = guess ? 'Best guess from the label — check and edit it' : 'Could not read the label — type it manually';
+      if(nameEl && guess) nameEl.value = guess;
+      if(categoryEl && guess) categoryEl.value = guessCategory(guess);
+    }catch(e){
+      if(noteEl) noteEl.textContent = 'Could not read the label — type it manually';
+    }
+  }
+
+  // ---------- storage (plain localStorage — works on any static host) ----------
+  async function loadInventory(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw) inventory = JSON.parse(raw);
+    }catch(e){
+      inventory = {};
+    }
+    renderShelf();
+  }
+  async function saveInventory(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(inventory));
+    }catch(e){
+      console.error('save failed', e);
+      showToast('Could not save — try again');
+    }
+  }
+
+  // ---------- shelf rendering ----------
+  function renderShelf(){
+    const codes = Object.keys(inventory).sort((a,b)=>{
+      return (inventory[a].name||'').localeCompare(inventory[b].name||'');
+    });
+    shelfCount.textContent = codes.length + (codes.length===1 ? ' item' : ' items');
+    if(codes.length===0){
+      shelfList.innerHTML = '<div class="empty-shelf">The shelf is empty. Scan a bottle to start stocking.</div>';
+      renderCocktails();
+      renderSnapshot();
+      return;
+    }
+    shelfList.innerHTML = '';
+    codes.forEach(code=>{
+      const item = inventory[code];
+      const row = document.createElement('div');
+      row.className = 'bottle-row';
+      row.innerHTML = `
+        <div class="bottle-info">
+          <div class="name">${escapeHtml(item.name || 'Unnamed bottle')}</div>
+          <div class="brand">${item.brand ? escapeHtml(item.brand) + ' &middot; ' : ''}${escapeHtml(item.category || 'Other')}</div>
+          <div class="code">${escapeHtml(code)}</div>
+        </div>
+        <div class="bottle-controls">
+          <button data-act="dec" data-code="${code}">−</button>
+          <span class="n">${item.qty}</span>
+          <button data-act="inc" data-code="${code}">+</button>
+          <button class="danger" data-act="del" data-code="${code}" style="margin-left:6px;">✕</button>
+        </div>
+      `;
+      shelfList.appendChild(row);
+    });
+    renderCocktails();
+    renderSnapshot();
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  shelfList.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button[data-act]');
+    if(!btn) return;
+    const code = btn.dataset.code;
+    const act = btn.dataset.act;
+    if(!inventory[code]) return;
+    if(act==='inc'){ inventory[code].qty += 1; }
+    if(act==='dec'){
+      inventory[code].qty -= 1;
+      if(inventory[code].qty <= 0){ delete inventory[code]; }
+    }
+    if(act==='del'){ delete inventory[code]; }
+    await saveInventory();
+    renderShelf();
+  });
+
+  // ---------- UPC lookup ----------
+  async function lookupUPCitemdb(code){
+    try{
+      const res = await fetch('https://api.upcitemdb.com/prod/trial/lookup?upc=' + encodeURIComponent(code));
+      if(!res.ok) return null;
+      const data = await res.json();
+      if(data && data.items && data.items.length > 0){
+        const it = data.items[0];
+        if(it.title) return { name: it.title, brand: it.brand || '' };
+      }
+      return null;
+    }catch(e){
+      return null;
+    }
+  }
+  async function lookupOpenFoodFacts(code){
+    try{
+      const res = await fetch('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) + '.json');
+      if(!res.ok) return null;
+      const data = await res.json();
+      if(data && data.status === 1 && data.product){
+        const p = data.product;
+        const name = p.product_name || p.generic_name || '';
+        const brand = p.brands || '';
+        if(name) return { name, brand };
+      }
+      return null;
+    }catch(e){
+      return null;
+    }
+  }
+  async function lookupUPC(code){
+    // 1. Already in our own shelf? Use that — fastest and most trustworthy.
+    if(inventory[code]){
+      return { name: inventory[code].name, brand: inventory[code].brand || '', category: inventory[code].category || guessCategory(inventory[code].name) };
+    }
+    // 2. Has anyone else using this app already named this barcode?
+    if(sharedDict[code]){
+      return { name: sharedDict[code].name, brand: sharedDict[code].brand || '', category: sharedDict[code].category || guessCategory(sharedDict[code].name) };
+    }
+    // 3. Try a general product database.
+    const a = await lookupUPCitemdb(code);
+    if(a) return { ...a, category: guessCategory(a.name) };
+    // 4. Fall back to a second database with decent beverage coverage.
+    const b = await lookupOpenFoodFacts(code);
+    if(b) return { ...b, category: guessCategory(b.name) };
+    // 5. Nothing found — the confirm card opens blank so it can be typed once.
+    return null;
+  }
+
+  // ---------- confirm card ----------
+  function openConfirmCard(code, prefill){
+    paused = true;
+    const name = (prefill && prefill.name) || '';
+    const brand = (prefill && prefill.brand) || '';
+    const category = (prefill && prefill.category) || 'Other';
+    const noteHtml = name ? '' : '<div style="font-family:var(--mono);font-size:10.5px;color:var(--parchment-dim);margin-bottom:10px;">No match in product databases — type it once and this barcode will remember it from now on.</div>';
+    confirmSlot.innerHTML = `
+      <div class="confirm-card">
+        <div class="barcode-tag">SCANNED &middot; ${escapeHtml(code)}</div>
+        ${noteHtml}
+        <div class="field">
+          <label for="cName">Bottle name</label>
+          <input id="cName" value="${escapeHtml(name)}" placeholder="Type the name if not found">
+        </div>
+        <div class="field">
+          <label for="cBrand">Brand / distillery</label>
+          <input id="cBrand" value="${escapeHtml(brand)}" placeholder="Optional">
+        </div>
+        <div class="field">
+          <label for="cCategory">Category</label>
+          <select id="cCategory">${categoryOptionsHtml(category)}</select>
+        </div>
+        <div class="qty-stepper">
+          <button id="qDec">−</button>
+          <span class="n" id="qN">1</span>
+          <button id="qInc">+</button>
+        </div>
+        <div class="row wrap">
+          <button class="primary" id="cAdd">Add to shelf</button>
+          <button class="ghost" id="cCancel">Rescan</button>
+        </div>
+      </div>
+    `;
+    let qty = 1;
+    const qN = document.getElementById('qN');
+    document.getElementById('qDec').onclick = ()=>{ qty = Math.max(1, qty-1); qN.textContent = qty; };
+    document.getElementById('qInc').onclick = ()=>{ qty += 1; qN.textContent = qty; };
+    document.getElementById('cCancel').onclick = ()=>{
+      confirmSlot.innerHTML = '';
+      paused = false;
+    };
+    document.getElementById('cAdd').onclick = async ()=>{
+      const finalName = document.getElementById('cName').value.trim() || 'Unnamed bottle';
+      const finalBrand = document.getElementById('cBrand').value.trim();
+      const finalCategory = document.getElementById('cCategory').value;
+      const isNew = !inventory[code];
+      if(inventory[code]){
+        inventory[code].qty += qty;
+        if(finalName) inventory[code].name = finalName;
+        if(finalBrand) inventory[code].brand = finalBrand;
+        inventory[code].category = finalCategory;
+      }else{
+        inventory[code] = { name: finalName, brand: finalBrand, qty, category: finalCategory };
+      }
+      await saveInventory();
+      renderShelf();
+      showToast('Added ' + finalName);
+      confirmSlot.innerHTML = '';
+      paused = false;
+      pushToSharedDict(code, finalName, finalBrand, finalCategory);
+      if(isNew) registerDiscovery(finalCategory);
+    };
+  }
+
+  // ---------- camera + BarcodeDetector ----------
+  const FORMATS = ['ean_13','ean_8','upc_a','upc_e','code_128','code_39'];
+
+  function detectorSupported(){
+    return 'BarcodeDetector' in window;
+  }
+
+  async function startScanning(){
+    if(!detectorSupported()){
+      stageMsgText.textContent = 'This browser doesn\'t support live barcode scanning. Use "Add a bottle manually" below instead.';
+      stageMsg.style.display = 'flex';
+      startBtn.style.display = 'none';
+      return;
+    }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:960} }
+      });
+      video.srcObject = stream;
+      await video.play();
+      detector = new BarcodeDetector({ formats: FORMATS });
+      stageMsg.style.display = 'none';
+      statusBar.classList.add('live');
+      statusText.textContent = 'Scanning';
+      scanning = true;
+      loopDetect();
+    }catch(e){
+      stageMsgText.innerHTML = 'Camera access was blocked or unavailable.<br>Check your browser permissions, or add bottles manually below.';
+      stageMsg.style.display = 'flex';
+      startBtn.textContent = 'Try again';
+    }
+  }
+
+  async function loopDetect(){
+    if(!scanning) return;
+    if(!paused){
+      try{
+        const codes = await detector.detect(video);
+        if(codes && codes.length > 0){
+          const raw = codes[0].rawValue;
+          if(raw){
+            onCodeDetected(raw);
+          }
+        }
+      }catch(e){ /* transient decode errors are normal, ignore */ }
+    }
+    rafId = requestAnimationFrame(()=> setTimeout(loopDetect, 250));
+  }
+
+  let lastCode = null;
+  let lastCodeTime = 0;
+  async function onCodeDetected(code){
+    const now = Date.now();
+    if(code === lastCode && (now - lastCodeTime) < 4000) return; // debounce repeat scans
+    lastCode = code; lastCodeTime = now;
+
+    if(quickCapture){
+      // Already known? Bump quantity and keep moving — no stopping.
+      if(inventory[code]){
+        inventory[code].qty += 1;
+        await saveInventory();
+        renderShelf();
+        showToast('+1 ' + inventory[code].name);
+        return;
+      }
+      if(sharedDict[code]){
+        inventory[code] = { name: sharedDict[code].name, brand: sharedDict[code].brand || '', category: sharedDict[code].category || guessCategory(sharedDict[code].name), qty: 1 };
+        await saveInventory();
+        renderShelf();
+        showToast('Added ' + sharedDict[code].name);
+        registerDiscovery(inventory[code].category);
+        return;
+      }
+      // Unknown — snap it and keep scanning instead of stopping to type.
+      const image = captureFrameCompressed();
+      reviewQueue.push({ id: Date.now() + '-' + code, barcode: code, image, timestamp: now });
+      saveQueue();
+      renderQueueBadge();
+      showToast('Captured ' + code + ' — keep scanning');
+      return;
+    }
+
+    statusText.textContent = 'Found ' + code + ' — looking up…';
+    paused = true;
+    const info = await lookupUPC(code);
+    openConfirmCard(code, info);
+    statusText.textContent = 'Scanning';
+  }
+
+  startBtn.addEventListener('click', startScanning);
+
+  // ---------- manual entry ----------
+  const manualToggleBtn = document.getElementById('manualToggleBtn');
+  const manualForm = document.getElementById('manualForm');
+  document.getElementById('mCategory').innerHTML = categoryOptionsHtml('Other');
+  manualToggleBtn.addEventListener('click', ()=>{
+    manualForm.style.display = manualForm.style.display==='none' ? 'block' : 'none';
+  });
+  document.getElementById('manualCancelBtn').addEventListener('click', ()=>{
+    manualForm.style.display = 'none';
+    document.getElementById('mBarcode').value = '';
+    document.getElementById('mName').value = '';
+    document.getElementById('mBrand').value = '';
+  });
+  document.getElementById('manualAddBtn').addEventListener('click', async ()=>{
+    const code = document.getElementById('mBarcode').value.trim();
+    const name = document.getElementById('mName').value.trim();
+    const brand = document.getElementById('mBrand').value.trim();
+    const category = document.getElementById('mCategory').value;
+    if(!code || !name){
+      showToast('Barcode and name are required');
+      return;
+    }
+    const isNew = !inventory[code];
+    if(inventory[code]){
+      inventory[code].qty += 1;
+      inventory[code].name = name;
+      if(brand) inventory[code].brand = brand;
+      inventory[code].category = category;
+    }else{
+      inventory[code] = { name, brand, qty: 1, category };
+    }
+    await saveInventory();
+    renderShelf();
+    showToast('Added ' + name);
+    document.getElementById('mBarcode').value = '';
+    document.getElementById('mName').value = '';
+    document.getElementById('mBrand').value = '';
+    manualForm.style.display = 'none';
+    pushToSharedDict(code, name, brand, category);
+    if(isNew) registerDiscovery(category);
+  });
+
+  // ---------- CSV export ----------
+  function csvEscape(val){
+    const s = String(val==null ? '' : val);
+    if(/[",\n]/.test(s)){
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const codes = Object.keys(inventory);
+    if(codes.length===0){
+      showToast('The shelf is empty — nothing to export');
+      return;
+    }
+    codes.sort((a,b)=> (inventory[a].name||'').localeCompare(inventory[b].name||''));
+    const rows = [['Name','Brand','Category','Barcode','Quantity']];
+    codes.forEach(code=>{
+      const item = inventory[code];
+      rows.push([item.name || '', item.brand || '', item.category || 'Other', code, item.qty]);
+    });
+    const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = 'the-pour-index-' + stamp + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Exported ' + codes.length + ' items');
+  });
+
+  // ---------- init ----------
+  loadInventory();
+  loadSharedDict();
+  loadQueue();
+  loadApiKey();
+  loadStreak();
+})();
+</script>
+</body>
+</html>
