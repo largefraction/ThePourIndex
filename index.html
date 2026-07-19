@@ -289,6 +289,15 @@
   .ocr-note{
     font-family:var(--mono);font-size:10.5px;color:var(--amber-bright);margin-bottom:10px;
   }
+  .recon-video-wrap{
+    position:relative;border-radius:6px;overflow:hidden;background:#0B0A07;
+    aspect-ratio:4/3;margin-bottom:12px;border:1px solid rgba(140,109,70,0.4);
+  }
+  .recon-video-wrap video{width:100%;height:100%;object-fit:cover;display:block;}
+  .recon-target-name{font-size:18px;margin-bottom:4px;}
+  .recon-target-sub{
+    font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:14px;
+  }
   .streak-box{
     display:flex;align-items:baseline;gap:12px;padding:6px 0;
   }
@@ -433,6 +442,15 @@
     <div id="snapshotDisplay"></div>
   </div>
 
+  <div class="shelf" id="reconcileSection" style="display:none;">
+    <h2>Match to Barcodes <span class="count" id="reconcileCount"></span></h2>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:10px;">
+      Imported without a barcode — scan each physical bottle once to attach its real code.
+    </div>
+    <button class="primary" id="reconcileStartBtn">Start matching</button>
+  </div>
+  <div id="reconcileModal"></div>
+
   <div class="shelf" id="reviewSection" style="display:none;">
     <h2>To label <span class="count" id="reviewCount">0 captured</span></h2>
     <div style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:10px;">
@@ -446,7 +464,10 @@
     <h2>On the shelf <span class="count" id="shelfCount">0 items</span></h2>
     <div class="row" style="margin:10px 0 4px;">
       <button class="ghost" id="exportBtn">⭳ Export CSV</button>
+      <button class="ghost" id="importBtn">⭱ Import CSV</button>
+      <input type="file" id="importFile" accept=".csv,text/csv" style="display:none;">
     </div>
+    <div id="importStatus" style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:8px;"></div>
     <div id="shelfList"></div>
   </div>
 
@@ -494,6 +515,7 @@
   let inventory = {}; // barcode -> {name, brand, qty, category}
   let sharedDict = {}; // barcode -> {name, brand} — crowdsourced, shared by everyone
   let reviewQueue = []; // [{id, barcode, image, timestamp}] — captured but not yet named
+  let reconcileQueue = []; // [{id, name, brand, category, qty}] — imported without a barcode, waiting to be scanned
   let quickCapture = false;
   let apiKey = '';
   let stream = null;
@@ -1205,6 +1227,155 @@
 
   startBtn.addEventListener('click', startScanning);
 
+  // ---------- reconcile queue (imported name-only items waiting for a real barcode) ----------
+  function loadReconcileQueue(){
+    try{
+      const raw = localStorage.getItem('reconcileQueue');
+      if(raw) reconcileQueue = JSON.parse(raw);
+    }catch(e){ reconcileQueue = []; }
+    renderReconcileBadge();
+  }
+  function saveReconcileQueue(){
+    try{ localStorage.setItem('reconcileQueue', JSON.stringify(reconcileQueue)); }catch(e){}
+  }
+  function renderReconcileBadge(){
+    const section = document.getElementById('reconcileSection');
+    if(reconcileQueue.length > 0){
+      section.style.display = 'block';
+      document.getElementById('reconcileCount').textContent = reconcileQueue.length + ' waiting';
+    }else{
+      section.style.display = 'none';
+    }
+  }
+
+  let reconStream = null;
+  let reconDetector = null;
+  let reconScanning = false;
+  let reconPaused = false;
+
+  document.getElementById('reconcileStartBtn').addEventListener('click', openReconcilePanel);
+
+  async function openReconcilePanel(){
+    if(reconcileQueue.length === 0) return;
+    const item = reconcileQueue[0];
+    const modal = document.getElementById('reconcileModal');
+    modal.innerHTML = `
+      <div class="review-overlay">
+        <div class="review-panel">
+          <div class="prog">Matching ${reconcileQueue.length} left</div>
+          <div class="recon-target-name">${escapeHtml(item.name)}</div>
+          <div class="recon-target-sub">${item.brand ? escapeHtml(item.brand) + ' &middot; ' : ''}${escapeHtml(item.category)} — scan this bottle's barcode</div>
+          <div class="recon-video-wrap">
+            <video id="reconVideo" playsinline muted></video>
+          </div>
+          <div class="ocr-note" id="reconStatus">Starting camera…</div>
+          <div class="field">
+            <label for="reconManualBarcode">Or type the barcode manually</label>
+            <input id="reconManualBarcode" inputmode="numeric" placeholder="e.g. 087000123456">
+          </div>
+          <div class="row wrap">
+            <button class="primary" id="reconManualBtn">Use typed barcode</button>
+          </div>
+          <div class="row wrap" style="margin-top:10px;">
+            <button class="ghost" id="reconSkipBtn">Skip for now</button>
+            <button class="danger" id="reconRemoveBtn">Don't have this one</button>
+            <button class="ghost" id="reconCloseBtn">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('reconSkipBtn').onclick = ()=>{
+      reconcileQueue.push(reconcileQueue.shift());
+      saveReconcileQueue(); renderReconcileBadge();
+      stopReconCamera();
+      openReconcilePanel();
+    };
+    document.getElementById('reconRemoveBtn').onclick = ()=>{
+      reconcileQueue.shift();
+      saveReconcileQueue(); renderReconcileBadge();
+      stopReconCamera();
+      if(reconcileQueue.length > 0) openReconcilePanel();
+      else closeReconcilePanel();
+    };
+    document.getElementById('reconCloseBtn').onclick = closeReconcilePanel;
+    document.getElementById('reconManualBtn').onclick = ()=>{
+      const code = document.getElementById('reconManualBarcode').value.trim();
+      if(!code){ showToast('Type a barcode first'); return; }
+      attachBarcodeToReconcileItem(code, item);
+    };
+    await startReconCamera(item);
+  }
+
+  async function startReconCamera(item){
+    const video = document.getElementById('reconVideo');
+    const statusEl = document.getElementById('reconStatus');
+    if(!detectorSupported()){
+      statusEl.textContent = 'Live scanning not supported in this browser — type the barcode manually below.';
+      return;
+    }
+    try{
+      if(!reconStream){
+        reconStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:960} }
+        });
+      }
+      video.srcObject = reconStream;
+      await video.play();
+      reconDetector = new BarcodeDetector({ formats: FORMATS });
+      statusEl.textContent = 'Point the camera at this bottle\'s barcode…';
+      reconScanning = true;
+      reconPaused = false;
+      reconLoopDetect(item, video, statusEl);
+    }catch(e){
+      statusEl.textContent = 'Camera access blocked — type the barcode manually below instead.';
+    }
+  }
+
+  async function reconLoopDetect(item, video, statusEl){
+    if(!reconScanning) return;
+    if(!reconPaused){
+      try{
+        const codes = await reconDetector.detect(video);
+        if(codes && codes.length > 0 && codes[0].rawValue){
+          reconPaused = true;
+          attachBarcodeToReconcileItem(codes[0].rawValue, item);
+          return;
+        }
+      }catch(e){ /* transient decode errors are normal */ }
+    }
+    setTimeout(()=> reconLoopDetect(item, video, statusEl), 250);
+  }
+
+  async function attachBarcodeToReconcileItem(code, item){
+    if(inventory[code]){
+      inventory[code].qty += item.qty || 1;
+    }else{
+      inventory[code] = { name: item.name, brand: item.brand, category: item.category, qty: item.qty || 1 };
+      pushToSharedDict(code, item.name, item.brand, item.category);
+    }
+    await saveInventory();
+    renderShelf();
+    reconcileQueue.shift();
+    saveReconcileQueue(); renderReconcileBadge();
+    showToast('Matched: ' + item.name);
+    stopReconCamera();
+    if(reconcileQueue.length > 0) openReconcilePanel();
+    else closeReconcilePanel();
+  }
+
+  function stopReconCamera(){
+    reconScanning = false;
+    if(reconStream){
+      reconStream.getTracks().forEach(t => t.stop());
+      reconStream = null;
+    }
+  }
+  function closeReconcilePanel(){
+    stopReconCamera();
+    document.getElementById('reconcileModal').innerHTML = '';
+    if(reconcileQueue.length === 0) showToast('All matched — nice work');
+  }
+
   // ---------- manual entry ----------
   const manualToggleBtn = document.getElementById('manualToggleBtn');
   const manualForm = document.getElementById('manualForm');
@@ -1281,6 +1452,117 @@
     showToast('Exported ' + codes.length + ' items');
   });
 
+  // ---------- CSV import ----------
+  function parseCSV(text){
+    // Handles quoted fields containing commas, quotes, and newlines.
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    for(let i = 0; i < text.length; i++){
+      const c = text[i];
+      if(inQuotes){
+        if(c === '"'){
+          if(text[i+1] === '"'){ field += '"'; i++; }
+          else inQuotes = false;
+        }else field += c;
+      }else{
+        if(c === '"') inQuotes = true;
+        else if(c === ','){ row.push(field); field = ''; }
+        else if(c === '\n' || c === '\r'){
+          if(c === '\r' && text[i+1] === '\n') i++;
+          row.push(field); field = '';
+          if(row.length > 1 || row[0] !== ''){ rows.push(row); }
+          row = [];
+        }else field += c;
+      }
+    }
+    if(field !== '' || row.length > 0){ row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  document.getElementById('importBtn').addEventListener('click', ()=>{
+    document.getElementById('importFile').click();
+  });
+
+  document.getElementById('importFile').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const importStatus = document.getElementById('importStatus');
+    importStatus.textContent = 'Reading file…';
+    try{
+      const text = await file.text();
+      const rows = parseCSV(text);
+      if(rows.length < 2){
+        importStatus.textContent = 'That file looks empty or has no data rows.';
+        return;
+      }
+      const header = rows[0].map(h => h.trim().toLowerCase());
+      const idx = {
+        name: header.findIndex(h => h === 'name' || h === 'bottle name'),
+        brand: header.findIndex(h => h === 'brand'),
+        category: header.findIndex(h => h === 'category'),
+        type: header.findIndex(h => h === 'type'),
+        subtype: header.findIndex(h => h === 'style / subtype' || h === 'style' || h === 'subtype'),
+        barcode: header.findIndex(h => h === 'barcode' || h === 'upc' || h === 'ean'),
+        qty: header.findIndex(h => h === 'quantity' || h === 'qty')
+      };
+      if(idx.name === -1){
+        importStatus.textContent = 'File needs at least a "Name" column.';
+        return;
+      }
+      let added = 0, updated = 0, queued = 0, skipped = 0;
+      const newSharedEntries = [];
+      for(let r = 1; r < rows.length; r++){
+        const cols = rows[r];
+        const barcode = (idx.barcode > -1 ? cols[idx.barcode] : '').trim();
+        const name = (idx.name > -1 ? cols[idx.name] : '').trim();
+        if(!name){ skipped++; continue; }
+        const brand = idx.brand > -1 ? (cols[idx.brand] || '').trim() : '';
+        const qty = idx.qty > -1 ? (parseInt(cols[idx.qty], 10) || 1) : 1;
+        const typeText = [idx.type > -1 ? cols[idx.type] : '', idx.subtype > -1 ? cols[idx.subtype] : ''].join(' ');
+        let category = idx.category > -1 ? (cols[idx.category] || '').trim() : '';
+        if(!CATEGORIES.includes(category)) category = guessCategory(name + ' ' + typeText);
+        if(!barcode){
+          // No barcode to attach yet — park it for the "Match to Barcodes" flow.
+          reconcileQueue.push({ id: Date.now() + '-' + r, name, brand, category, qty });
+          queued++;
+          continue;
+        }
+        if(inventory[barcode]){
+          inventory[barcode].qty += qty;
+          updated++;
+        }else{
+          inventory[barcode] = { name, brand, category, qty };
+          added++;
+          newSharedEntries.push([barcode, { name, brand, category }]);
+        }
+      }
+      await saveInventory();
+      renderShelf();
+      if(queued > 0){ saveReconcileQueue(); renderReconcileBadge(); }
+      importStatus.textContent = `Imported: ${added} new, ${updated} restocked, ${queued} need a barcode scan${skipped ? ', ' + skipped + ' skipped (no name)' : ''}.`;
+      showToast('Import complete');
+      // Batch-merge new entries into the shared dictionary in one request, not one per row.
+      if(newSharedEntries.length > 0 && SHARED_DICT_URL){
+        try{
+          const res = await fetch(SHARED_DICT_URL);
+          const latest = res.ok ? await res.json() : sharedDict;
+          newSharedEntries.forEach(([code, entry]) => { latest[code] = entry; });
+          sharedDict = latest;
+          await fetch(SHARED_DICT_URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(latest)
+          });
+        }catch(err){
+          // best-effort — the import to this device's own shelf already succeeded
+        }
+      }
+    }catch(err){
+      importStatus.textContent = 'Could not read that file — make sure it\'s a valid CSV.';
+    }
+    e.target.value = ''; // allow re-selecting the same file later
+  });
+
   // ---------- how it works ----------
   document.getElementById('howToBtn').addEventListener('click', ()=>{
     const panel = document.getElementById('howToPanel');
@@ -1291,6 +1573,7 @@
   loadInventory();
   loadSharedDict();
   loadQueue();
+  loadReconcileQueue();
   loadApiKey();
   loadStreak();
 })();
