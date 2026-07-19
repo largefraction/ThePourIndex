@@ -346,12 +346,6 @@
     <div style="font-family:var(--mono);font-size:10.5px;color:var(--parchment-dim);margin-top:12px;">Everything's saved in this browser only — nothing leaves your device except an optional shared barcode dictionary others can add to as well.</div>
   </div>
 
-  <div id="setupBanner" style="display:none;border:1px dashed var(--brass);border-radius:6px;padding:14px;margin:16px 0;font-family:var(--mono);font-size:11.5px;color:var(--parchment-dim);">
-    <div style="margin-bottom:10px;">One-time setup: create the shared barcode dictionary so everyone's scans teach each other.</div>
-    <button class="primary" id="createDictBtn">Create shared dictionary</button>
-    <div id="createDictResult" style="margin-top:10px;"></div>
-  </div>
-
   <div class="scan-stage" id="scanStage">
     <video id="video" playsinline muted></video>
     <div class="viewfinder">
@@ -473,7 +467,7 @@
   // else's copy of the app recognizes that barcode from then on.
   // One-time setup: click "Create shared dictionary" below (shown until this is set),
   // then replace the line below with the URL it gives you, and redeploy.
-  const SHARED_DICT_URL = ''; // e.g. 'https://jsonblob.com/api/jsonBlob/1234567890123456789'
+  const SHARED_DICT_URL = 'https://jsonblob.com/api/jsonBlob/019f77b0-e17c-72b3-a9eb-72a6bd2fc0fe';
 
   const STORAGE_KEY = 'inventory';
   const QUEUE_KEY = 'reviewQueue';
@@ -558,39 +552,6 @@
     }catch(e){
       // best-effort — the bottle is still saved to this device's own shelf either way
     }
-  }
-  async function setupSharedDictionary(){
-    const btn = document.getElementById('createDictBtn');
-    const result = document.getElementById('createDictResult');
-    btn.disabled = true;
-    btn.textContent = 'Creating…';
-    try{
-      const res = await fetch('https://jsonblob.com/api/jsonBlob', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}'
-      });
-      const location = res.headers.get('Location');
-      if(location){
-        result.innerHTML = `
-          <div style="color:var(--amber-bright);margin-bottom:6px;">Created! Copy this URL:</div>
-          <div style="background:var(--ink);padding:8px;border-radius:4px;word-break:break-all;user-select:all;">${location}</div>
-          <div style="margin-top:8px;">Paste it as the value of SHARED_DICT_URL near the top of the &lt;script&gt; in index.html, then re-upload that file. This banner disappears once it's set.</div>
-        `;
-      }else{
-        result.textContent = 'Something went wrong — no URL came back. Try again in a moment.';
-        btn.disabled = false;
-        btn.textContent = 'Create shared dictionary';
-      }
-    }catch(e){
-      result.textContent = 'Could not reach the storage service — check your connection and try again.';
-      btn.disabled = false;
-      btn.textContent = 'Create shared dictionary';
-    }
-  }
-  if(!SHARED_DICT_URL){
-    document.getElementById('setupBanner').style.display = 'block';
-    document.getElementById('createDictBtn').addEventListener('click', setupSharedDictionary);
   }
 
   // ---------- optional Claude vision recognition (bring-your-own API key) ----------
