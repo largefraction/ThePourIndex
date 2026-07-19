@@ -467,6 +467,13 @@
       <button class="ghost" id="importBtn">⭱ Import CSV</button>
       <input type="file" id="importFile" accept=".csv,text/csv" style="display:none;">
     </div>
+    <div class="field" style="margin-top:4px;">
+      <label for="sheetsUrlInput">Or paste a Google Sheets link (set sharing to "Anyone with the link")</label>
+      <input id="sheetsUrlInput" placeholder="https://docs.google.com/spreadsheets/d/...">
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <button class="ghost" id="sheetsImportBtn">Import from Google Sheets</button>
+    </div>
     <div id="importStatus" style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:8px;"></div>
     <div id="shelfList"></div>
   </div>
@@ -1486,13 +1493,51 @@
   document.getElementById('importFile').addEventListener('change', async (e)=>{
     const file = e.target.files[0];
     if(!file) return;
+    const text = await file.text();
+    await processImportText(text);
+    e.target.value = ''; // allow re-selecting the same file later
+  });
+
+  function sheetsUrlToCsvExport(url){
+    // Turns a normal "Anyone with the link can view" share URL into a direct CSV export URL.
+    const idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if(!idMatch) return null;
+    const gidMatch = url.match(/[?#&]gid=([0-9]+)/);
+    let exportUrl = `https://docs.google.com/spreadsheets/d/${idMatch[1]}/export?format=csv`;
+    if(gidMatch) exportUrl += `&gid=${gidMatch[1]}`;
+    return exportUrl;
+  }
+
+  document.getElementById('sheetsImportBtn').addEventListener('click', async ()=>{
     const importStatus = document.getElementById('importStatus');
-    importStatus.textContent = 'Reading file…';
+    const raw = document.getElementById('sheetsUrlInput').value.trim();
+    if(!raw){ showToast('Paste a Google Sheets link first'); return; }
+    const exportUrl = sheetsUrlToCsvExport(raw);
+    if(!exportUrl){
+      importStatus.textContent = 'That doesn\'t look like a Google Sheets link.';
+      return;
+    }
+    importStatus.textContent = 'Fetching sheet…';
     try{
-      const text = await file.text();
+      const res = await fetch(exportUrl);
+      if(!res.ok){
+        importStatus.textContent = 'Could not fetch that sheet — make sure sharing is set to "Anyone with the link can view."';
+        return;
+      }
+      const text = await res.text();
+      await processImportText(text);
+    }catch(err){
+      importStatus.textContent = 'Could not fetch that sheet — make sure sharing is set to "Anyone with the link can view."';
+    }
+  });
+
+  async function processImportText(text){
+    const importStatus = document.getElementById('importStatus');
+    importStatus.textContent = 'Reading data…';
+    try{
       const rows = parseCSV(text);
       if(rows.length < 2){
-        importStatus.textContent = 'That file looks empty or has no data rows.';
+        importStatus.textContent = 'That looks empty or has no data rows.';
         return;
       }
       const header = rows[0].map(h => h.trim().toLowerCase());
@@ -1558,10 +1603,9 @@
         }
       }
     }catch(err){
-      importStatus.textContent = 'Could not read that file — make sure it\'s a valid CSV.';
+      importStatus.textContent = 'Could not read that data — make sure it\'s a valid CSV.';
     }
-    e.target.value = ''; // allow re-selecting the same file later
-  });
+  }
 
   // ---------- how it works ----------
   document.getElementById('howToBtn').addEventListener('click', ()=>{
