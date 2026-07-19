@@ -355,6 +355,7 @@
         <div class="sweep" id="sweep"></div>
       </div>
     </div>
+    <div class="stage-msg" id="flipOverlay" style="display:none;"></div>
     <div class="stage-msg" id="stageMsg">
       <div>
         <div id="stageMsgText">Camera scanning starts once you grant access.</div>
@@ -783,6 +784,16 @@
     }
   }
 
+  const flipOverlay = document.getElementById('flipOverlay');
+  async function showFlipCountdown(seconds){
+    flipOverlay.style.display = 'flex';
+    for(let s = seconds; s > 0; s--){
+      flipOverlay.innerHTML = `<div>Flip the bottle to show the label<br><span style="font-size:32px;color:var(--amber-bright);">${s}</span></div>`;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    flipOverlay.style.display = 'none';
+  }
+
   function captureFrameCompressed(){
     const canvas = document.createElement('canvas');
     const maxW = 500;
@@ -1172,12 +1183,16 @@
         registerDiscovery(inventory[code].category);
         return;
       }
-      // Unknown — snap it and keep scanning instead of stopping to type.
+      // Unknown — give a moment to flip the bottle so the photo shows the label, not the barcode.
+      paused = true;
+      showToast('Got it — flip the bottle to show the label');
+      await showFlipCountdown(5);
       const image = captureFrameCompressed();
       reviewQueue.push({ id: Date.now() + '-' + code, barcode: code, image, timestamp: now });
       saveQueue();
       renderQueueBadge();
       showToast('Captured ' + code + ' — keep scanning');
+      paused = false;
       return;
     }
 
