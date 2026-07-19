@@ -1440,8 +1440,15 @@
       video.srcObject = reconStream;
       await video.play();
       reconDetector = new BarcodeDetector({ formats: FORMATS });
-      statusEl.textContent = 'Point the camera at this bottle\'s barcode…';
       reconScanning = true;
+      reconPaused = true; // stays paused until the countdown below finishes
+      // Mandatory pause so the *previous* bottle's barcode can't get read again for this new item.
+      for(let s = 3; s > 0; s--){
+        statusEl.textContent = `Swap to the next bottle… scanning starts in ${s}`;
+        await new Promise(r => setTimeout(r, 1000));
+        if(!reconScanning) return; // panel was closed mid-countdown
+      }
+      statusEl.textContent = 'Point the camera at this bottle\'s barcode…';
       reconPaused = false;
       reconLoopDetect(item, video, statusEl);
     }catch(e){
