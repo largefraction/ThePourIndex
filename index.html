@@ -429,6 +429,20 @@
     </div>
   </div>
 
+  <div class="shelf" id="syncSection">
+    <h2>Sync Across Devices</h2>
+    <div id="syncStatus" style="font-family:var(--mono);font-size:11px;color:var(--parchment-dim);margin-bottom:12px;"></div>
+    <button class="primary" id="getSyncCodeBtn">Get a sync code</button>
+    <div class="field" style="margin-top:14px;">
+      <label for="syncCodeInput">Have a code from another device?</label>
+      <input id="syncCodeInput" placeholder="Paste your sync code">
+    </div>
+    <div class="row">
+      <button class="primary" id="loadSyncCodeBtn">Load that shelf here</button>
+      <button class="danger" id="stopSyncBtn" style="display:none;">Stop syncing this device</button>
+    </div>
+  </div>
+
   <div class="shelf" id="streakSection">
     <h2>Discoveries</h2>
     <div id="streakDisplay"></div>
@@ -950,6 +964,103 @@
     }
   }
 
+  // ---------- sync across devices (no accounts — a code that points at your own cloud blob) ----------
+  const SYNC_BASE = 'https://jsonblob.com/api/jsonBlob/';
+  let syncCode = null;
+
+  function syncUrl(){
+    return syncCode ? SYNC_BASE + syncCode : null;
+  }
+  function loadSyncCode(){
+    try{ syncCode = localStorage.getItem('syncCode') || null; }catch(e){ syncCode = null; }
+    renderSyncStatus();
+  }
+  function renderSyncStatus(){
+    const statusEl = document.getElementById('syncStatus');
+    const stopBtn = document.getElementById('stopSyncBtn');
+    const getBtn = document.getElementById('getSyncCodeBtn');
+    if(syncCode){
+      statusEl.innerHTML = `Synced. Your code: <span style="color:var(--amber-bright);user-select:all;">${escapeHtml(syncCode)}</span> — enter this on another device to load the same shelf there.`;
+      stopBtn.style.display = 'inline-block';
+      getBtn.style.display = 'none';
+    }else{
+      statusEl.textContent = 'Not synced yet — this shelf only exists on this device.';
+      stopBtn.style.display = 'none';
+      getBtn.style.display = 'inline-block';
+    }
+  }
+
+  document.getElementById('getSyncCodeBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('getSyncCodeBtn');
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+    try{
+      const res = await fetch('https://jsonblob.com/api/jsonBlob', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(inventory)
+      });
+      const location = res.headers.get('Location');
+      const fullUrl = location ? new URL(location, 'https://jsonblob.com').href : null;
+      if(fullUrl){
+        syncCode = fullUrl.split('/').pop();
+        localStorage.setItem('syncCode', syncCode);
+        renderSyncStatus();
+        showToast('Synced! Save this code for your other device.');
+      }else{
+        showToast('Something went wrong — try again in a moment');
+      }
+    }catch(e){
+      showToast('Could not reach the sync service — try again');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Get a sync code';
+  });
+
+  document.getElementById('loadSyncCodeBtn').addEventListener('click', async ()=>{
+    const code = document.getElementById('syncCodeInput').value.trim();
+    if(!code){ showToast('Paste a sync code first'); return; }
+    try{
+      const res = await fetch(SYNC_BASE + code);
+      if(!res.ok){ showToast('That code didn\'t match anything'); return; }
+      const cloudInventory = await res.json();
+      const hasLocal = Object.keys(inventory).length > 0;
+      if(hasLocal){
+        const proceed = confirm('This will replace this device\'s current shelf with the synced one. Continue?');
+        if(!proceed) return;
+      }
+      inventory = cloudInventory || {};
+      syncCode = code;
+      localStorage.setItem('syncCode', syncCode);
+      await saveInventory();
+      renderShelf();
+      renderSyncStatus();
+      showToast('Loaded synced shelf');
+    }catch(e){
+      showToast('Could not reach the sync service — try again');
+    }
+  });
+
+  document.getElementById('stopSyncBtn').addEventListener('click', ()=>{
+    syncCode = null;
+    localStorage.removeItem('syncCode');
+    renderSyncStatus();
+    showToast('This device is no longer syncing (your cloud copy is untouched)');
+  });
+
+  async function pushToSync(){
+    if(!syncCode) return;
+    try{
+      await fetch(syncUrl(), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(inventory)
+      });
+    }catch(e){
+      // best-effort — local save already succeeded regardless
+    }
+  }
+
   // ---------- storage (plain localStorage — works on any static host) ----------
   async function loadInventory(){
     try{
@@ -967,6 +1078,7 @@
       console.error('save failed', e);
       showToast('Could not save — try again');
     }
+    pushToSync();
   }
 
   // ---------- shelf rendering ----------
@@ -1620,6 +1732,7 @@
   loadReconcileQueue();
   loadApiKey();
   loadStreak();
+  loadSyncCode();
 })();
 </script>
 </body>
