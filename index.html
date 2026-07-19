@@ -508,9 +508,9 @@
   // ---- SHARED BARCODE DICTIONARY SETUP ----
   // This lets anyone using the app teach it a bottle's name once, and everyone
   // else's copy of the app recognizes that barcode from then on.
-  // One-time setup: click "Create shared dictionary" below (shown until this is set),
-  // then replace the line below with the URL it gives you, and redeploy.
-  const SHARED_DICT_URL = 'https://jsonblob.com/api/jsonBlob/019f77b0-e17c-72b3-a9eb-72a6bd2fc0fe';
+  // Backed by Firebase Realtime Database (project: pit-box-communicator),
+  // using isolated paths that don't touch any other app's data in that project.
+  const FIREBASE_DB_URL = 'https://pit-box-communicator-default-rtdb.firebaseio.com';
 
   const STORAGE_KEY = 'inventory';
   const QUEUE_KEY = 'reviewQueue';
@@ -570,33 +570,32 @@
 
   // ---------- shared barcode dictionary (crowdsourced across everyone) ----------
   async function loadSharedDict(){
-    if(!SHARED_DICT_URL) return;
     try{
-      const res = await fetch(SHARED_DICT_URL);
+      const res = await fetch(`${FIREBASE_DB_URL}/pourIndexSharedDict.json`);
       if(res.ok){
-        sharedDict = await res.json();
+        const data = await res.json();
+        sharedDict = data || {};
       }
     }catch(e){
       // no network / service hiccup — app still works from local data + live APIs
     }
   }
   async function pushToSharedDict(code, name, brand, category){
-    if(!SHARED_DICT_URL) return;
+    const entry = { name, brand: brand || '', category: category || 'Other' };
+    sharedDict[code] = entry;
     try{
-      // Re-fetch first so a near-simultaneous edit from someone else isn't clobbered.
-      const res = await fetch(SHARED_DICT_URL);
-      const latest = res.ok ? await res.json() : sharedDict;
-      latest[code] = { name, brand: brand || '', category: category || 'Other' };
-      sharedDict = latest;
-      await fetch(SHARED_DICT_URL, {
+      // Writes directly to this one barcode's path — no read-modify-write,
+      // so this can never clobber anyone else's simultaneous contribution.
+      await fetch(`${FIREBASE_DB_URL}/pourIndexSharedDict/${encodeURIComponent(code)}.json`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(latest)
+        body: JSON.stringify(entry)
       });
     }catch(e){
       // best-effort — the bottle is still saved to this device's own shelf either way
     }
   }
+
 
   // ---------- optional Claude vision recognition (bring-your-own API key) ----------
   const settingsToggleBtn = document.getElementById('settingsToggleBtn');
@@ -964,12 +963,11 @@
     }
   }
 
-  // ---------- sync across devices (no accounts — a code that points at your own cloud blob) ----------
-  const SYNC_BASE = 'https://jsonblob.com/api/jsonBlob/';
+  // ---------- sync across devices (no accounts — a code that points at your own cloud entry) ----------
   let syncCode = null;
 
   function syncUrl(){
-    return syncCode ? SYNC_BASE + syncCode : null;
+    return syncCode ? `${FIREBASE_DB_URL}/pourIndexSync/${encodeURIComponent(syncCode)}.json` : null;
   }
   function loadSyncCode(){
     try{ syncCode = localStorage.getItem('syncCode') || null; }catch(e){ syncCode = null; }
@@ -995,15 +993,15 @@
     btn.disabled = true;
     btn.textContent = 'Creating…';
     try{
-      const res = await fetch('https://jsonblob.com/api/jsonBlob', {
+      // POSTing to a Realtime Database path auto-generates a unique push key — that key becomes the sync code.
+      const res = await fetch(`${FIREBASE_DB_URL}/pourIndexSync.json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(inventory)
       });
-      const location = res.headers.get('Location');
-      const fullUrl = location ? new URL(location, 'https://jsonblob.com').href : null;
-      if(fullUrl){
-        syncCode = fullUrl.split('/').pop();
+      if(res.ok){
+        const data = await res.json();
+        syncCode = data.name; // Firebase's generated push key
         localStorage.setItem('syncCode', syncCode);
         renderSyncStatus();
         showToast('Synced! Save this code for your other device.');
@@ -1021,9 +1019,10 @@
     const code = document.getElementById('syncCodeInput').value.trim();
     if(!code){ showToast('Paste a sync code first'); return; }
     try{
-      const res = await fetch(SYNC_BASE + code);
+      const res = await fetch(`${FIREBASE_DB_URL}/pourIndexSync/${encodeURIComponent(code)}.json`);
       if(!res.ok){ showToast('That code didn\'t match anything'); return; }
       const cloudInventory = await res.json();
+      if(cloudInventory === null){ showToast('That code didn\'t match anything'); return; }
       const hasLocal = Object.keys(inventory).length > 0;
       if(hasLocal){
         const proceed = confirm('This will replace this device\'s current shelf with the synced one. Continue?');
@@ -1699,16 +1698,19 @@
       importStatus.textContent = `Imported: ${added} new, ${updated} restocked, ${queued} need a barcode scan${skipped ? ', ' + skipped + ' skipped (no name)' : ''}.`;
       showToast('Import complete');
       // Batch-merge new entries into the shared dictionary in one request, not one per row.
-      if(newSharedEntries.length > 0 && SHARED_DICT_URL){
+      // Firebase's PATCH treats each key as an independent path update — no read-modify-write,
+      // so this can't clobber anyone else's simultaneous contribution either.
+      if(newSharedEntries.length > 0){
         try{
-          const res = await fetch(SHARED_DICT_URL);
-          const latest = res.ok ? await res.json() : sharedDict;
-          newSharedEntries.forEach(([code, entry]) => { latest[code] = entry; });
-          sharedDict = latest;
-          await fetch(SHARED_DICT_URL, {
-            method: 'PUT',
+          const patchBody = {};
+          newSharedEntries.forEach(([code, entry]) => {
+            patchBody[code] = entry;
+            sharedDict[code] = entry;
+          });
+          await fetch(`${FIREBASE_DB_URL}/pourIndexSharedDict.json`, {
+            method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(latest)
+            body: JSON.stringify(patchBody)
           });
         }catch(err){
           // best-effort — the import to this device's own shelf already succeeded
